@@ -1,69 +1,74 @@
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
+
+document.getElementById('submitQuestion').addEventListener('click', async () => {
   const fileInput = document.getElementById('fileInput');
-  const questionInput = document.getElementById('questionInput');
-  const submitQuestion = document.getElementById('submitQuestion');
+  const questionInput = document.getElementById('questionInput').value.trim();
   const answerOutput = document.getElementById('answerOutput');
-  let fileContents = [];
 
-  // Handle file uploads
-  fileInput.addEventListener('change', async (event) => {
-    fileContents = []; // Reset content on new upload
-    const files = event.target.files;
+  // Clear previous output
+  answerOutput.innerHTML = 'Processing...';
 
-    for (const file of files) {
+  if (!fileInput.files.length) {
+    answerOutput.innerHTML = 'Error: Please upload at least one file.';
+    return;
+  }
+
+  if (!questionInput) {
+    answerOutput.innerHTML = 'Error: Please enter a question.';
+    return;
+  }
+
+  let fileContent = '';
+
+  // Process all uploaded files
+  for (const file of fileInput.files) {
+    try {
       if (file.type === 'text/plain') {
+        // Handle .txt files
         const text = await file.text();
-        fileContents.push({ name: file.name, content: text.toLowerCase() });
+        fileContent += text + '\n';
       } else if (file.type === 'application/pdf') {
+        // Handle .pdf files
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-        let text = '';
+        let pdfText = '';
+
+        // Extract text from each page
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          text += content.items.map(item => item.str).join(' ') + ' ';
+          const textContent = await page.getTextContent();
+          pdfText += textContent.items.map(item => item.str).join(' ') + '\n';
         }
-        fileContents.push({ name: file.name, content: text.toLowerCase() });
+        fileContent += pdfText + '\n';
+      } else {
+        answerOutput.innerHTML = `Error: Unsupported file type for ${file.name}.`;
+        return;
       }
-    }
-    answerOutput.innerHTML = `<p class="text-green-600">Files uploaded successfully: ${fileContents.map(f => f.name).join(', ')}</p>`;
-  });
-
-  // Handle question submission
-  submitQuestion.addEventListener('click', () => {
-    const question = questionInput.value.trim().toLowerCase();
-    if (!question) {
-      answerOutput.innerHTML = '<p class="text-red-600">Please enter a question.</p>';
+    } catch (error) {
+      console.error('Error processing file:', error);
+      answerOutput.innerHTML = `Error processing file: ${file.name}`;
       return;
     }
-    if (fileContents.length === 0) {
-      answerOutput.innerHTML = '<p class="text-red-600">No files uploaded. Please upload files to get answers.</p>';
-      return;
-    }
+  }
 
-    // Simple keyword-based search
-    let answer = '';
-    const keywords = question.split(/\s+/);
-    for (const file of fileContents) {
-      let relevantText = '';
-      for (const keyword of keywords) {
-        if (file.content.includes(keyword)) {
-          // Extract a snippet around the keyword (100 characters before and after)
-          const index = file.content.indexOf(keyword);
-          const start = Math.max(0, index - 100);
-          const end = Math.min(file.content.length, index + keyword.length + 100);
-          relevantText += file.content.slice(start, end) + ' ... ';
-        }
-      }
-      if (relevantText) {
-        answer += `<p><strong>From ${file.name}:</strong> ${relevantText}</p>`;
-      }
-    }
-
-    if (answer) {
-      answerOutput.innerHTML = `<p class="text-gray-800">${answer}</p>`;
-    } else {
-      answerOutput.innerHTML = '<p class="text-red-600">Sorry, I couldn’t find an answer in the uploaded files.</p>';
-    }
-  });
+  // Simple keyword-based answer generation
+  const answer = generateAnswer(fileContent, questionInput);
+  answerOutput.innerHTML = answer || 'No relevant information found in the uploaded files.';
 });
+
+// Basic answer generation function (keyword matching)
+function generateAnswer(content, question) {
+  const lowerContent = content.toLowerCase();
+  const lowerQuestion = question.toLowerCase();
+  const sentences = lowerContent.split('\n').filter(s => s.trim());
+
+  // Find sentences containing question keywords
+  const keywords = lowerQuestion.split(/\s+/);
+  for (const sentence of sentences) {
+    if (keywords.some(keyword => sentence.includes(keyword))) {
+      return sentence;
+    }
+  }
+  return null;
+}
